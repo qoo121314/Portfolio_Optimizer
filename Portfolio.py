@@ -6,12 +6,13 @@ import seaborn as sns
 from scipy.optimize import minimize
 import itertools
 
+
+
 sns.set_style('darkgrid')
 
 class Portfolio():
-    
     @staticmethod
-    def get_price_table(code_list, start='2015-01-01', end='2019-12-31'):
+    def get_price_table(code, start='2015-01-01', end='2019-12-31'):
         '''put list of stock code here
         '''
         temp=[]
@@ -26,7 +27,6 @@ class Portfolio():
         close_df = pd.concat(adj_close_data, axis=1, keys=code_list, join='inner')
 
         return close_df
-    
     
     def __init__(self, data):
         self.price_data = data
@@ -62,7 +62,7 @@ class Portfolio():
         sns.lineplot(x=MDD_Series.index ,y=-MDD_Series, ax=ax[1], color='r')
         ax[1].fill_between(x=MDD_Series.index ,y1=-MDD_Series, color='r')
 
-        ax[0].set_xlabel('')   
+        ax[0].set_xlabel('')
         ax[0].set_ylabel('Return%')
         ax[1].set_yticklabels(['{:,.1%}'.format(y) for y in ax[1].get_yticks()])
 
@@ -182,20 +182,24 @@ class Portfolio():
         return MDD_Series.max()
     
     def Summary(self):
-        print('Weights of Portfolio:')
-        print('######################')
-        for i, j in zip(self.price_data.columns, self.weights):
-            print('{:<18}{:>12.1%}'.format(i,round(j,5)))
-        print('######################')
+        print('{:^50}'.format('Period'))
+        print('From {}  to {}, {} days.'.format(str(self.start_day.date()), str(self.end_day.date()), (self.end_day-self.start_day).days  ))
+        print('-'*60)
+        print('{:^50}'.format('Weights of Portfolio:'))
+        print('-'*60)
+        for i, j in zip(port.price_data.columns, port.weights):
+            j = round(j,5)
+            print('{:<30s}    {:>12.2%}'.format(i , j) )
+        print('-'*60)
         print('\n')
-        print('Technical Indicator:')
-        print('######################')
-        print('Average Return : {:>25.3f}'.format(self.Get_Average_Return()))
-        print('Average Standard Deviation : {:>55.3f}'.format(self.Get_Average_SD()))
-        print('Sharpe Ratio : {:>25.3f}'.format(self.Get_Sharpe_Ratio()))
-        print('Sotino Ratio : {:>25.3f}'.format(self.Get_Sotino_Ratio()))
-        print('Maximum Drop Down : {:>25.3f}'.format(self.Get_MDD()))
-        print('######################')
+        print('{:^50}'.format('Technical Indicator:'))
+        print('-'*60)
+        print('Average Return : {:>55.3f}'.format(self.Get_Average_Return()))
+        print('Average Standard Deviation : {:>31.3f}'.format(self.Get_Average_SD()))
+        print('Sharpe Ratio : {:>60.3f}'.format(self.Get_Sharpe_Ratio()))
+        print('Sotino Ratio : {:>61.3f}'.format(self.Get_Sotino_Ratio()))
+        print('Maximum Drop Down : {:>42.3f}'.format(self.Get_MDD()))
+        print('-'*60)
 
         
     def set_optimize(self, begin=None , end=None, rf=0.05):
@@ -226,6 +230,16 @@ class Portfolio():
         Sharpe_Ratio = (Average_Return.loc[self.__opt_begin : self.__opt_end].mean() - (self.__rf / 252) ) * 252 / (Average_Return.loc[self.__opt_begin : self.__opt_end].std() * np.sqrt(252))
 
         return  - Sharpe_Ratio
+    
+    def __mdd_target(self, weights):
+        
+        
+        Portfolio_Return =(self.daily_return * weights).sum(axis=1).cumsum()
+
+        Cum_Trade_Percent_Return=np.exp(Portfolio_Return)
+        MDD_Series = Cum_Trade_Percent_Return.cummax()-Cum_Trade_Percent_Return
+        
+        return  MDD_Series.max()
 
     def __check_sum_positive(self, weights):
         #return 0 if sum of the weights is 1
@@ -235,7 +249,7 @@ class Portfolio():
         #return 0 if sum of the weights is 1
         return np.sum(weights)
 
-    def Get_Best_Portfolio(self, hedge=None, bothside=None):
+    def Get_Best_Portfolio(self, hedge=None, bothside=None, method='sharpe'):
         Return_Table = self.daily_return
 
         bounds=[]
@@ -255,13 +269,69 @@ class Portfolio():
         init_guess= []
         for i in itertools.repeat( (1/len(Return_Table.columns)) ,len(Return_Table.columns)):
             init_guess.append(i)
+            
+        if method == 'sharpe':
+            opt_results= minimize(self.__sharpe_target, init_guess, method='SLSQP', bounds= bounds, constraints=cons)
+            return -opt_results['fun'], list(opt_results['x'])
+        
+        elif method=='mdd':
+            opt_results= minimize(self.__mdd_target, init_guess, method='SLSQP', bounds= bounds, constraints=cons)
+            return opt_results['fun'], list(opt_results['x'])
 
-        opt_results= minimize(self.__sharpe_target, init_guess, method='SLSQP', bounds= bounds, constraints=cons)
-
-        return -opt_results['fun'], list(opt_results['x'])
     
     def set_weights(self, weights=None):
         if weights == None:
             self.weights = np.ones(len(self.price_data.columns)) / len(self.price_data.columns)
         else:
             self.weights = weights
+        
+    def Get_Monte_Carlo_Forecast(self, capital=1 , path=1000, period=3, yearly=None):
+        
+        if yearly==True:
+            s=np.repeat(capital, path)
+            ret = self.Get_Average_Return()
+            vol = self.Get_Average_SD()
+            
+            for i in range(period):
+                b = np.random.normal(0, 1, path)
+                s = s + s * (ret + b * vol)
+        
+        else:
+            s=np.repeat(capital, path)
+            ret = self.Get_Average_Return()
+            vol = self.Get_Average_SD()
+            
+            for i in range(period*252):
+                b=np.random.normal(0, 1, path)
+                s = s + s * (ret / 252 + b * vol / np.sqrt(252))          
+        
+        
+        res = s
+        res.sort()
+        sns.set_style('darkgrid')
+        
+        if capital==1:
+            print('Minimum : {0:21.3%} '.format( np.percentile(res,0)  )   )
+            print('5   Percentile : {0:15.3%} '.format( np.percentile(res,5)  )   )
+            print('25 Percentile : {0:15.3%} '.format( np.percentile(res,25)  )   )
+            print('Median : {0:25.3%} '.format( np.percentile(res,50)  )   )
+            print('Mean : {0:28.3%} '.format( res.mean()  )   )
+            print('75 Percentile : {0:15.3%} '.format( np.percentile(res,75)  )   )
+            print('Maximum : {0:20.3%} '.format( np.percentile(res,100)  )   )
+            sns.distplot(res,axlabel ='Expected Earnings (%)',label ='ya')
+                    
+        else:
+            print('Minimum : {0:21.3f} '.format( np.percentile(res,0)  )   )
+            print('5   Percentile : {0:15.3f} '.format( np.percentile(res,5)  )   )
+            print('25 Percentile : {0:15.3f} '.format( np.percentile(res,25)  )   )
+            print('Median : {0:25.3f} '.format( np.percentile(res,50)  )   )
+            print('Mean : {0:28.3f} '.format( res.mean()  )   )
+            print('75 Percentile : {0:15.3f} '.format( np.percentile(res,75)  )   )
+            print('Maximum : {0:20.3f} '.format( np.percentile(res,100)  )   )
+            sns.distplot(res,axlabel ='Expected Earnings (USD)',label ='ya')
+        
+        
+        plt.yticks(visible=False)
+        plt.figure(figsize=(16,8))
+        plt.show()
+    
