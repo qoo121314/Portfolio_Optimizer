@@ -12,7 +12,7 @@ sns.set_style('darkgrid')
 
 class Portfolio():
     @staticmethod
-    def get_price_table(code, start='2015-01-01', end='2019-12-31'):
+    def get_price_table(code_list, start='2015-01-01', end='2019-12-31'):
         '''put list of stock code here
         '''
         temp=[]
@@ -187,7 +187,7 @@ class Portfolio():
         print('-'*60)
         print('{:^50}'.format('Weights of Portfolio:'))
         print('-'*60)
-        for i, j in zip(port.price_data.columns, port.weights):
+        for i, j in zip(self.price_data.columns, self.weights):
             j = round(j,5)
             print('{:<30s}    {:>12.2%}'.format(i , j) )
         print('-'*60)
